@@ -1,0 +1,19 @@
+backups/
+.tmp-inspect-*/
+screenshot/
+ans.txt
+intro.txt
+CHANGELOG.md
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Large local demo artifacts
+screenshot.mp4

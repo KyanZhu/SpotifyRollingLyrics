@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Spotify Rolling Lyrics",
+  "description": "Show synced rolling lyrics for the currently playing Spotify Web track.",
+  "version": "0.7.15",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Spotify Rolling Lyrics"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "permissions": ["tabs", "storage", "activeTab", "tabCapture", "offscreen"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/content.js"],
+      "css": ["src/lyrics.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/pitch-page.js", "src/soundtouch-processor.js"],
+      "matches": ["https://open.spotify.com/*"]
+    },
+    {
+      "resources": ["icons/icon-32.png"],
+      "matches": ["http://*/*", "https://*/*"]
+    }
+  ],
+  "host_permissions": ["https://lrclib.net/*"]
+}
