@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Spotify Rolling Lyrics",
   "description": "Show synced rolling lyrics for the currently playing Spotify Web track.",
-  "version": "0.7.15",
+  "version": "0.7.16",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

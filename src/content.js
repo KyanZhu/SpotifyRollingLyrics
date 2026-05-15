@@ -11,6 +11,8 @@
     trackKey: "",
     track: null,
     lyrics: [],
+    lyricMatches: [],
+    lyricMatchIndex: 0,
     plainLyrics: "",
     status: "Open Spotify Web and play a song",
     activeIndex: -1,
@@ -29,6 +31,8 @@
     progressCurrentNode: null,
     progressTotalNode: null,
     offsetOutputNode: null,
+    lyricMatchBarNode: null,
+    lyricMatchOutputNode: null,
     title: null,
     subtitle: null,
     statusNode: null,
@@ -36,10 +40,11 @@
     toggleButton: null,
     closeButton: null,
     dragHandle: null,
-    collapsed: false,
+    collapsed: true,
     hidden: false,
     settingsOpen: false,
     opacity: 0.88,
+    backgroundColor: "#0e1012",
     fontSize: 16,
     activeLineViewportPercent: 75,
     activeColor: "#b81a35",
@@ -58,6 +63,8 @@
     progressSeeking: false,
     progressPreviewMs: null,
     playbackReady: false,
+    lyricsRequestId: 0,
+    transportRetry: null,
     suppressToggleClick: false,
     statusActionsTimeoutId: null,
     statusActionsLockedUntil: 0
@@ -75,6 +82,16 @@
     if (parts.some((part) => Number.isNaN(part))) return 0;
     if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
     return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+  };
+
+  const colorToRgbTriplet = (color, fallback = "14 16 18") => {
+    const normalized = /^#[0-9a-f]{6}$/i.test(color || "") ? color.slice(1) : "";
+    if (!normalized) return fallback;
+    return [
+      parseInt(normalized.slice(0, 2), 16),
+      parseInt(normalized.slice(2, 4), 16),
+      parseInt(normalized.slice(4, 6), 16)
+    ].join(" ");
   };
 
   const normalizeTitle = (title) =>
@@ -161,6 +178,12 @@
       ? state.lyrics
       : state.plainLyrics.split(/\r?\n/).filter(Boolean).map((text, index) => ({ time: index * 4000, text }));
 
+  const hasLyricCandidateContent = (candidate) =>
+    Boolean(candidate?.syncedLyrics || candidate?.plainLyrics);
+
+  const lyricCandidatesForDisplay = () =>
+    (Array.isArray(state.lyricMatches) ? state.lyricMatches : []).filter(hasLyricCandidateContent);
+
   const hasLyricsContent = (lyrics = state.lyrics, plainLyrics = state.plainLyrics) =>
     Boolean((lyrics && lyrics.length) || (plainLyrics && plainLyrics.split(/\r?\n/).some(Boolean)));
 
@@ -189,8 +212,11 @@
   const ensurePanelTop = (panel) => {
     if (!panel) return;
     const rect = panel.getBoundingClientRect();
-    const fallbackTop = window.innerHeight - rect.height - 104;
-    const nextTop = Number.isFinite(rect.top) && rect.top > 0 ? rect.top : fallbackTop;
+    const hasExplicitTop = Boolean(panel.style.top);
+    const fallbackTop = state.collapsed
+      ? (window.innerHeight - rect.height) / 2
+      : window.innerHeight - rect.height - 104;
+    const nextTop = hasExplicitTop && Number.isFinite(rect.top) ? rect.top : fallbackTop;
     setPanelTop(panel, nextTop);
   };
 
@@ -212,6 +238,7 @@
     }
 
     state.panel.querySelector(".srl-playlist-refresh")?.toggleAttribute("disabled", !isPlaybackReady());
+    state.panel.querySelector(".srl-settings-button")?.toggleAttribute("disabled", false);
   };
 
   const createPanel = () => {
@@ -261,10 +288,15 @@
       <div class="srl-status" role="status">Open Spotify Web and play a song</div>
       <div class="srl-status-actions is-hidden" aria-label="Spotify recovery actions"></div>
       <div class="srl-lyrics-toolbar" aria-label="Lyrics timing controls">
-        <span class="srl-lyrics-toolbar-label">Lyric sync</span>
+        <span class="srl-lyrics-toolbar-label">Sync</span>
         <button type="button" data-offset="-500" title="Lyrics earlier">-0.5s</button>
-        <output>0.0s</output>
+        <output class="srl-offset-output">0.0s</output>
         <button type="button" data-offset="500" title="Lyrics later">+0.5s</button>
+        <div class="srl-lyric-match-bar is-hidden" aria-label="Lyrics result selection">
+          <button type="button" data-lyric-match-nav="-1" title="Previous lyrics result" aria-label="Previous lyrics result">&lt;</button>
+          <output class="srl-lyric-match-output">1/1</output>
+          <button type="button" data-lyric-match-nav="1" title="Next lyrics result" aria-label="Next lyrics result">&gt;</button>
+        </div>
       </div>
       <div class="srl-playlist-pane is-hidden" aria-label="Track list browser">
         <div class="srl-playlist-toolbar">
@@ -283,16 +315,6 @@
           <output>16px</output>
         </label>
         <label class="srl-setting-row">
-          <span>Highlight</span>
-          <input data-setting="activeColor" type="color" value="#b81a35" aria-label="Highlight color">
-          <output>#b81a35</output>
-        </label>
-        <label class="srl-setting-row">
-          <span>Opacity</span>
-          <input data-setting="opacity" type="range" min="15" max="96" value="88" aria-label="Background opacity">
-          <output>88%</output>
-        </label>
-        <label class="srl-setting-row">
           <span>Lyric focus</span>
           <input data-setting="activeLinePosition" type="range" min="0" max="100" value="0" aria-label="Lyric focus position">
           <output>0%</output>
@@ -302,7 +324,31 @@
           <input data-setting="pitch" type="range" min="-6" max="6" step="1" value="0" aria-label="Pitch shift">
           <output>0 st</output>
         </label>
+        <label class="srl-setting-row">
+          <span>Opacity</span>
+          <input data-setting="opacity" type="range" min="15" max="96" value="88" aria-label="Background opacity">
+          <output>88%</output>
+        </label>
+        <div class="srl-setting-row srl-setting-row-colors">
+          <span>Colors</span>
+          <div class="srl-color-controls">
+            <label class="srl-color-control">
+              <span>Background</span>
+              <input data-setting="backgroundColor" type="color" value="#0e1012" aria-label="Background color">
+            </label>
+            <label class="srl-color-control">
+              <span>Highlight</span>
+              <input data-setting="activeColor" type="color" value="#b81a35" aria-label="Highlight color">
+            </label>
+          </div>
+        </div>
         <div class="srl-pitch-state">High-quality pitch standby</div>
+        <a
+          class="srl-support-link"
+          href="https://github.com/KyanZhu/SpotifyRollingLyrics#support"
+          target="_blank"
+          rel="noreferrer noopener"
+        >☕ Buy me a coffee</a>
       </div>
       <div class="srl-list" aria-live="polite"></div>
     `;
@@ -318,7 +364,9 @@
     state.progressRange = panel.querySelector(".srl-progress-range");
     state.progressCurrentNode = panel.querySelector(".srl-progress-current");
     state.progressTotalNode = panel.querySelector(".srl-progress-total");
-    state.offsetOutputNode = panel.querySelector(".srl-lyrics-toolbar output");
+    state.offsetOutputNode = panel.querySelector(".srl-offset-output");
+    state.lyricMatchBarNode = panel.querySelector(".srl-lyric-match-bar");
+    state.lyricMatchOutputNode = panel.querySelector(".srl-lyric-match-output");
     state.title = panel.querySelector(".srl-title");
     state.subtitle = panel.querySelector(".srl-subtitle");
     state.statusNode = panel.querySelector(".srl-status");
@@ -329,6 +377,10 @@
     state.pitchStateNode = panel.querySelector(".srl-pitch-state");
     const settingsButton = panel.querySelector(".srl-settings-button");
     const settingsPane = panel.querySelector(".srl-settings");
+
+    panel.classList.toggle("is-collapsed", state.collapsed);
+    state.toggleButton.title = state.collapsed ? "Expand lyrics" : "Collapse lyrics";
+    state.toggleButton.setAttribute("aria-label", state.toggleButton.title);
 
     state.toggleButton.addEventListener("click", () => {
       if (state.suppressToggleClick) {
@@ -407,21 +459,59 @@
       });
     });
 
-    panel.querySelectorAll("[data-spotify-control]").forEach((button) => {
+    panel.querySelectorAll("[data-lyric-match-nav]").forEach((button) => {
       button.addEventListener("click", () => {
-        if (!isPlaybackReady()) {
-          showSpotifyAssistStatus();
+        const matches = lyricCandidatesForDisplay();
+        if (matches.length <= 1) return;
+        const nextIndex = (state.lyricMatchIndex + Number(button.dataset.lyricMatchNav) + matches.length) % matches.length;
+        if (IS_SPOTIFY) {
+          applyLyricMatchSelection(nextIndex, { publish: true, remember: true });
           return;
-        }
-        if (button.dataset.spotifyControl === "playpause") {
-          state.isPlaying = !state.isPlaying;
-          updatePlayButton();
         }
         sendMessage({
           type: "spotify-rolling-lyrics:spotifyControl",
-          action: button.dataset.spotifyControl,
+          action: "selectLyricMatch",
+          value: nextIndex
+        });
+      });
+    });
+
+    panel.querySelectorAll("[data-spotify-control]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const action = button.dataset.spotifyControl;
+        const isTransportAction = action === "playpause" || action === "previous" || action === "next";
+        if (!isTransportAction && !isPlaybackReady()) {
+          showSpotifyAssistStatus();
+          return;
+        }
+
+        const previousPlayingState = state.isPlaying;
+        if (action === "playpause") {
+          state.isPlaying = !state.isPlaying;
+          updatePlayButton();
+        }
+
+        const response = await sendMessage({
+          type: "spotify-rolling-lyrics:spotifyControl",
+          action,
           seconds: Number(button.dataset.seconds || 0)
         });
+        if (response?.ok) {
+          if (!IS_SPOTIFY && action === "playpause" && !previousPlayingState) {
+            const started = await ensureRemotePlaybackStarted();
+            if (!started) {
+              state.isPlaying = false;
+              updatePlayButton();
+            }
+          }
+          return;
+        }
+
+        if (action === "playpause") {
+          state.isPlaying = previousPlayingState;
+          updatePlayButton();
+        }
+        showSpotifyAssistStatus();
       });
     });
 
@@ -431,6 +521,10 @@
 
     panel.querySelector('[data-setting="activeColor"]').addEventListener("input", (event) => {
       setActiveColor(event.target.value, true);
+    });
+
+    panel.querySelector('[data-setting="backgroundColor"]').addEventListener("input", (event) => {
+      setBackgroundColor(event.target.value, true);
     });
 
     panel.querySelector('[data-setting="opacity"]').addEventListener("input", (event) => {
@@ -473,9 +567,23 @@
     ensurePanelTop(panel);
     wireDragging();
     renderPitchState();
+    renderLyricMatchControls();
     renderProgress();
     renderPlaylistEntries();
     renderControlAvailability();
+  };
+
+  const renderLyricMatchControls = () => {
+    if (!state.lyricMatchBarNode || !state.lyricMatchOutputNode) return;
+    const matches = lyricCandidatesForDisplay();
+    const visible = matches.length > 1;
+    state.lyricMatchBarNode.classList.toggle("is-hidden", !visible);
+    if (!visible) {
+      state.lyricMatchOutputNode.textContent = "1/1";
+      return;
+    }
+    const safeIndex = Math.min(matches.length - 1, Math.max(0, state.lyricMatchIndex || 0));
+    state.lyricMatchOutputNode.textContent = `${safeIndex + 1}/${matches.length}`;
   };
 
   const renderStatusActions = (actions = [], options = {}) => {
@@ -518,12 +626,34 @@
     if (!response?.ok || !response.spotifyContext) {
       renderStatus("Spotify Web is not ready yet. Open or refresh Spotify Web, then try again.");
       renderStatusActions([{ type: "openSpotify", label: "Open Spotify" }]);
+      renderControlAvailability();
       return;
     }
 
     const { message, actions } = response.spotifyContext;
     renderStatus(message || "Spotify Web is ready.");
     renderStatusActions(actions || []);
+    renderControlAvailability();
+  };
+
+  const ensureRemotePlaybackStarted = async () => {
+    await wait(1100);
+    const stateResponse = await sendMessage({ type: "spotify-rolling-lyrics:getState" });
+    if (stateResponse?.ok) applyPlayback(stateResponse.playback);
+    if (stateResponse?.playback?.isPlaying) return true;
+
+    const contextResponse = await sendMessage({ type: "spotify-rolling-lyrics:getSpotifyContext" });
+    const spotifyContext = contextResponse?.spotifyContext;
+    const preferredAction = spotifyContext?.actions?.some((action) => action.type === "focusSpotify")
+      ? "focusSpotify"
+      : "openSpotify";
+
+    await sendMessage({
+      type: "spotify-rolling-lyrics:spotifyAssist",
+      action: preferredAction
+    }).catch(() => {});
+    await showSpotifyAssistStatus();
+    return false;
   };
 
   const setOpacity = (opacity, shouldPersist = false) => {
@@ -534,6 +664,14 @@
     if (input) input.value = String(Math.round(state.opacity * 100));
     if (output) output.textContent = `${Math.round(state.opacity * 100)}%`;
     if (shouldPersist) chrome.storage.local.set({ spotifyRollingLyricsOpacity: state.opacity });
+  };
+
+  const setBackgroundColor = (color, shouldPersist = false) => {
+    state.backgroundColor = /^#[0-9a-f]{6}$/i.test(color || "") ? color : "#0e1012";
+    state.panel?.style.setProperty("--srl-bg-color-rgb", colorToRgbTriplet(state.backgroundColor));
+    const input = state.panel?.querySelector('[data-setting="backgroundColor"]');
+    if (input) input.value = state.backgroundColor;
+    if (shouldPersist) chrome.storage.local.set({ spotifyRollingLyricsBackgroundColor: state.backgroundColor });
   };
 
   const setActiveLinePositionNormalized = (normalized, shouldPersist = false) => {
@@ -566,9 +704,7 @@
     state.activeColor = /^#[0-9a-f]{6}$/i.test(color || "") ? color : "#b81a35";
     state.panel?.style.setProperty("--srl-active-color", state.activeColor);
     const input = state.panel?.querySelector('[data-setting="activeColor"]');
-    const output = input?.closest(".srl-setting-row")?.querySelector("output");
     if (input) input.value = state.activeColor;
-    if (output) output.textContent = state.activeColor;
     if (shouldPersist) chrome.storage.local.set({ spotifyRollingLyricsActiveColor: state.activeColor });
   };
 
@@ -822,6 +958,7 @@
   const loadSettings = async () => {
     const result = await chrome.storage.local.get({
       spotifyRollingLyricsOpacity: 0.88,
+      spotifyRollingLyricsBackgroundColor: "#0e1012",
       spotifyRollingLyricsFontSize: 16,
       spotifyRollingLyricsActiveColor: "#b81a35",
       spotifyRollingLyricsPitchSemitones: 0,
@@ -832,6 +969,7 @@
       ? result.spotifyRollingLyricsActiveLinePosition
       : migrateLegacyActiveLinePositionNormalized(result.spotifyRollingLyricsActiveLinePosition);
     setOpacity(result.spotifyRollingLyricsOpacity);
+    setBackgroundColor(result.spotifyRollingLyricsBackgroundColor);
     setFontSize(result.spotifyRollingLyricsFontSize);
     setActiveColor(result.spotifyRollingLyricsActiveColor);
     setActiveLinePositionNormalized(activeLinePositionNormalized);
@@ -846,19 +984,126 @@
     }
   };
 
-  const clickSpotifyButton = (action) => {
+  const setTransportRetry = (nextRetry) => {
+    if (state.transportRetry?.timeoutId) {
+      window.clearTimeout(state.transportRetry.timeoutId);
+    }
+    state.transportRetry = nextRetry;
+  };
+
+  const clearTransportRetry = () => setTransportRetry(null);
+
+  const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  const actualSpotifyPlayingState = () => {
+    const media = mediaElementForPlayback();
+    if (media) return !media.paused;
+
+    const button = document.querySelector('[data-testid="control-button-playpause"]');
+    const label = [
+      button?.getAttribute("aria-label"),
+      button?.getAttribute("title"),
+      button?.textContent
+    ].map(cleanText).join(" ");
+
+    if (/pause|暂停|暫停/i.test(label)) return true;
+    if (/play|播放/i.test(label)) return false;
+    return null;
+  };
+
+  const clickSpotifyButton = async (action, options = {}) => {
     const testIds = {
       previous: "control-button-skip-back",
       next: "control-button-skip-forward",
       playpause: "control-button-playpause"
     };
     const button = document.querySelector(`[data-testid="${testIds[action]}"]`);
-    button?.click();
-    if (action === "playpause") {
+    if (!button) return false;
+    button.click();
+    if (action === "playpause" && options.updateState !== false) {
       state.isPlaying = !state.isPlaying;
       updatePlayButton();
       window.setTimeout(observeSpotify, 350);
+      await wait(300);
+      const actualState = actualSpotifyPlayingState();
+      if (typeof actualState === "boolean") {
+        state.isPlaying = actualState;
+        updatePlayButton();
+        if (typeof options.expectPlaying === "boolean" && actualState !== options.expectPlaying) {
+          return false;
+        }
+      }
     }
+    return true;
+  };
+
+  const mediaElementForPlayback = () => document.querySelector("audio, video");
+
+  const attemptSpotifyTransportAction = async (action, options = {}) => {
+    if (action === "playpause") {
+      const media = mediaElementForPlayback();
+      const wantsPlay = options.forcePlay === true || (!state.isPlaying && options.forcePause !== true);
+      const wantsPause = options.forcePause === true || (state.isPlaying && options.forcePlay !== true);
+
+      if (media && wantsPlay && typeof media.play === "function") {
+        try {
+          await media.play();
+          state.isPlaying = true;
+          updatePlayButton();
+          window.setTimeout(observeSpotify, 350);
+          return true;
+        } catch (_) {
+          // Fall through to Spotify's own transport button.
+        }
+      }
+
+      if (media && wantsPause && typeof media.pause === "function") {
+        try {
+          media.pause();
+          state.isPlaying = false;
+          updatePlayButton();
+          window.setTimeout(observeSpotify, 350);
+          return true;
+        } catch (_) {
+          // Fall through to Spotify's own transport button.
+        }
+      }
+
+      return clickSpotifyButton(action, {
+        ...options,
+        expectPlaying: wantsPlay
+      });
+    }
+
+    return clickSpotifyButton(action, options);
+  };
+
+  const scheduleSpotifyTransportRetry = (action, options = {}) => {
+    const nextAttempt = Number(options.attempt || 0) + 1;
+    if (nextAttempt > 8) {
+      clearTransportRetry();
+      return;
+    }
+
+    const retry = {
+      action,
+      attempt: nextAttempt,
+      timeoutId: window.setTimeout(async () => {
+        const currentRetry = state.transportRetry;
+        if (!currentRetry || currentRetry.action !== action || currentRetry.attempt !== nextAttempt) return;
+        const applied = await attemptSpotifyTransportAction(action, {
+          updateState: action === "playpause",
+          forcePlay: action === "playpause" ? !state.isPlaying : undefined,
+          forcePause: false
+        });
+        if (applied) {
+          clearTransportRetry();
+          return;
+        }
+        scheduleSpotifyTransportRetry(action, { attempt: nextAttempt });
+      }, 500)
+    };
+    setTransportRetry(retry);
   };
 
   const seekSpotify = (seconds) => {
@@ -906,11 +1151,24 @@
 
     if (message?.type !== "spotify-rolling-lyrics:spotifyControl" || !IS_SPOTIFY) return;
     if (message.action === "previous" || message.action === "next" || message.action === "playpause") {
-      clickSpotifyButton(message.action);
+      attemptSpotifyTransportAction(message.action, { updateState: true }).then((applied) => {
+        if (applied) {
+          clearTransportRetry();
+          return;
+        }
+        if (message.suppressRetry) {
+          clearTransportRetry();
+          return;
+        }
+        scheduleSpotifyTransportRetry(message.action);
+      });
     }
     if (message.action === "seek") seekSpotify(Number(message.seconds || 0));
     if (message.action === "seekToMs") seekSpotifyToMs(Number(message.ms || 0));
     if (message.action === "playPlaylistEntry") playPlaylistEntry(message.entry);
+    if (message.action === "selectLyricMatch") {
+      applyLyricMatchSelection(Number(message.value), { publish: true, remember: true });
+    }
     if (message.action === "setPitch") {
       setPitchSemitones(Number(message.value), {
         persist: false,
@@ -989,6 +1247,28 @@
   const resetManualOffset = () => {
     state.manualOffsetMs = 0;
     if (state.offsetOutputNode) state.offsetOutputNode.textContent = "0.0s";
+  };
+
+  const applyLyricMatchSelection = (index, options = {}) => {
+    const matches = lyricCandidatesForDisplay();
+    if (!matches.length) {
+      state.lyricMatchIndex = 0;
+      renderLyricMatchControls();
+      return false;
+    }
+
+    const nextIndex = Math.min(matches.length - 1, Math.max(0, Number(index) || 0));
+    const selectedMatch = matches[nextIndex];
+    state.lyricMatchIndex = nextIndex;
+    state.lyrics = parseLrc(selectedMatch?.syncedLyrics);
+    state.plainLyrics = selectedMatch?.plainLyrics || "";
+    renderLyricMatchControls();
+    renderLyrics({
+      emptyStatus: state.track ? "No lyrics found for this selection" : "Waiting for Spotify playback"
+    });
+    if (options.remember) rememberLyricMatchSelection(state.track, nextIndex);
+    if (options.publish) publishPlayback();
+    return true;
   };
 
   const renderLyrics = (options = {}) => {
@@ -1076,6 +1356,15 @@
     return response.lyrics;
   };
 
+  const rememberLyricMatchSelection = (track, index) => {
+    if (!IS_SPOTIFY || !track) return;
+    sendMessage({
+      type: "spotify-rolling-lyrics:rememberLyricMatch",
+      track,
+      lyricMatchIndex: index
+    }).catch(() => {});
+  };
+
   const publishPlayback = () => {
     if (!IS_SPOTIFY) return;
     sendMessage({
@@ -1083,6 +1372,8 @@
       playback: {
         track: state.track,
         lyrics: state.lyrics,
+        lyricMatches: state.lyricMatches,
+        lyricMatchIndex: state.lyricMatchIndex,
         plainLyrics: state.plainLyrics,
         status: state.status,
         playlistEntries: state.playlistEntries,
@@ -1097,9 +1388,14 @@
   };
 
   const loadTrack = async (track) => {
+    const requestId = state.lyricsRequestId + 1;
+    const requestTrackKey = buildTrackKey(track);
+    state.lyricsRequestId = requestId;
     state.track = track;
-    state.trackKey = buildTrackKey(track);
+    state.trackKey = requestTrackKey;
     state.lyrics = [];
+    state.lyricMatches = [];
+    state.lyricMatchIndex = 0;
     state.plainLyrics = "";
     resetManualOffset();
     state.title.textContent = track.title;
@@ -1110,17 +1406,30 @@
 
     try {
       const result = await fetchLyrics(track);
+      if (state.lyricsRequestId !== requestId || state.trackKey !== requestTrackKey) return;
       if (!result) {
+        state.lyricMatches = [];
+        state.lyricMatchIndex = 0;
+        renderLyricMatchControls();
         renderStatus("No lyrics found for this track");
         publishPlayback();
         return;
       }
 
-      state.lyrics = parseLrc(result.syncedLyrics);
-      state.plainLyrics = result.plainLyrics || "";
-      renderLyrics();
+      state.lyricMatches = Array.isArray(result.matches) ? result.matches : [];
+      const initialMatchIndex = Math.max(0, Number(result.selectedMatchIndex) || 0);
+      state.lyricMatchIndex = initialMatchIndex;
+      if (!applyLyricMatchSelection(initialMatchIndex)) {
+        state.lyrics = parseLrc(result.syncedLyrics);
+        state.plainLyrics = result.plainLyrics || "";
+        renderLyrics();
+      }
       publishPlayback();
     } catch (error) {
+      if (state.lyricsRequestId !== requestId || state.trackKey !== requestTrackKey) return;
+      state.lyricMatches = [];
+      state.lyricMatchIndex = 0;
+      renderLyricMatchControls();
       renderStatus(`Lyrics unavailable: ${error.message}`);
       publishPlayback();
     }
@@ -1201,12 +1510,15 @@
       state.track = null;
       state.trackKey = "";
       state.lyrics = [];
+    state.lyricMatches = [];
+      state.lyricMatchIndex = 0;
       state.plainLyrics = "";
       state.progressMs = 0;
       state.durationMs = 0;
       state.isPlaying = false;
       state.playlistEntries = [];
       if (state.list) state.list.textContent = "";
+      renderLyricMatchControls();
       renderPlaylistEntries();
       renderProgress();
       updatePlayButton();
@@ -1219,11 +1531,14 @@
 
     const nextTrackKey = buildTrackKey(track);
     const lyricsChanged = nextTrackKey !== state.trackKey;
+    const lyricSelectionChanged = state.lyricMatchIndex !== Math.max(0, Number(playback.lyricMatchIndex) || 0);
     if (lyricsChanged) resetManualOffset();
     state.track = track;
     state.trackKey = nextTrackKey;
     state.lyrics = playback.lyrics || [];
     state.plainLyrics = playback.plainLyrics || "";
+    state.lyricMatches = Array.isArray(playback.lyricMatches) ? playback.lyricMatches : [];
+    state.lyricMatchIndex = Math.max(0, Number(playback.lyricMatchIndex) || 0);
     state.playlistEntries = playback.playlistEntries || [];
     state.playlistContextTitle = playback.playlistContextTitle || "Current page tracks";
     state.playlistContextSubtitle = playback.playlistContextSubtitle || "Open a playlist, album, or queue to browse loaded tracks";
@@ -1235,6 +1550,7 @@
 
     state.title.textContent = track.title;
     state.subtitle.textContent = track.artist;
+    renderLyricMatchControls();
     updatePlayButton();
     renderProgress();
     renderPlaylistEntries();
@@ -1242,7 +1558,7 @@
     if (playback.status) renderStatus(playback.status);
     else clearStatus();
 
-    if (lyricsChanged || !state.list.children.length) {
+    if (lyricsChanged || lyricSelectionChanged || !state.list.children.length) {
       if (hasLyricsContent(state.lyrics, state.plainLyrics)) {
         renderLyrics();
       } else {
@@ -1259,6 +1575,7 @@
     const track = readSpotifyTrack();
 
     if (!track) {
+      state.lyricsRequestId += 1;
       state.playbackReady = false;
       renderControlAvailability();
       renderStatus("Waiting for Spotify playback");

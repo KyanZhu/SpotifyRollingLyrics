@@ -1,5 +1,6 @@
 #spotify-rolling-lyrics-panel {
   --srl-bg-opacity: 0.88;
+  --srl-bg-color-rgb: 14 16 18;
   --srl-font-size: 16px;
   --srl-active-color: #b81a35;
   --srl-icon-url: none;
@@ -13,7 +14,7 @@
   grid-template-rows: auto auto auto auto auto auto 1fr;
   overflow: hidden;
   color: #f7f7f7;
-  background: rgba(14, 16, 18, var(--srl-bg-opacity));
+  background: rgb(var(--srl-bg-color-rgb) / var(--srl-bg-opacity));
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
@@ -88,6 +89,13 @@
   white-space: nowrap;
   color: rgba(247, 247, 247, 0.72);
   font-size: 12px;
+}
+
+.srl-status {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-line;
+  line-height: 1.45;
 }
 
 .srl-offset {
@@ -237,7 +245,11 @@
 .srl-player-controls button:disabled,
 .srl-progress-range:disabled,
 .srl-playlist-button:disabled,
-.srl-playlist-refresh:disabled {
+.srl-playlist-refresh:disabled,
+.srl-settings-button:disabled,
+.srl-lyrics-toolbar button:disabled,
+.srl-playlist-entry:disabled,
+.srl-settings input:disabled {
   opacity: 0.38;
   cursor: not-allowed;
   filter: none;
@@ -404,6 +416,22 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.srl-support-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #f7f7f7;
+  background: rgba(255, 255, 255, 0.08);
+  text-align: center;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.srl-support-link:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .srl-setting-row {
   display: flex;
   align-items: center;
@@ -416,6 +444,45 @@
 .srl-setting-row span {
   width: 72px;
   flex: 0 0 72px;
+}
+
+.srl-setting-row-colors {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+}
+
+.srl-color-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.srl-color-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.srl-color-control span {
+  width: auto;
+  flex: 1 1 auto;
+  color: rgba(247, 247, 247, 0.76);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.srl-color-control input[type="color"] {
+  width: 42px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
 }
 
 .srl-setting-row input[type="range"] {
@@ -510,9 +577,11 @@
 .srl-lyrics-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 8px 12px 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .srl-lyrics-toolbar-label {
@@ -540,6 +609,45 @@
 
 .srl-lyrics-toolbar output {
   min-width: 42px;
+  color: rgba(247, 247, 247, 0.9);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.srl-lyric-match-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.srl-lyric-match-bar.is-hidden {
+  display: none;
+}
+
+.srl-lyric-match-bar button {
+  min-width: 26px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #f7f7f7;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.srl-lyric-match-bar button:hover {
+  filter: brightness(1.08);
+}
+
+.srl-lyric-match-bar .srl-lyric-match-output {
+  min-width: 36px;
   color: rgba(247, 247, 247, 0.9);
   font-size: 11px;
   font-weight: 800;
@@ -618,6 +726,7 @@
 #spotify-rolling-lyrics-panel.is-collapsed .srl-player-controls,
 #spotify-rolling-lyrics-panel.is-collapsed .srl-progress,
 #spotify-rolling-lyrics-panel.is-collapsed .srl-lyrics-toolbar,
+#spotify-rolling-lyrics-panel.is-collapsed .srl-lyric-match-bar,
 #spotify-rolling-lyrics-panel.is-collapsed .srl-playlist-pane,
 #spotify-rolling-lyrics-panel.is-collapsed .srl-settings,
 #spotify-rolling-lyrics-panel.is-collapsed .srl-status,
@@ -648,7 +757,9 @@
 }
 
 #spotify-rolling-lyrics-panel.is-playlist-open .srl-lyrics-toolbar,
-#spotify-rolling-lyrics-panel.is-settings-open .srl-lyrics-toolbar {
+#spotify-rolling-lyrics-panel.is-playlist-open .srl-lyric-match-bar,
+#spotify-rolling-lyrics-panel.is-settings-open .srl-lyrics-toolbar,
+#spotify-rolling-lyrics-panel.is-settings-open .srl-lyric-match-bar {
   display: none;
 }
 
