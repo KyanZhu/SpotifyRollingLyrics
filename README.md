@@ -52,9 +52,9 @@ The extension injects a content script into `http://*/*` and `https://*/*` pages
 
 If this project helps you, you can support it here:
 
-- [Buy Me a Coffee](https://buymeacoffee.com/kyanzhu)
+- ☕ [Buy Me a Coffee](https://buymeacoffee.com/kyanzhu)
 
-![Donation QR codes](assets/support/donation-qrcodes.jpg)
+<img src="assets/support/donation-qrcodes.jpg" alt="Donation QR codes" width="560" />
 
 ## Notes
 
