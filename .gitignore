@@ -1,8 +1,7 @@
 backups/
 .tmp-inspect-*/
 screenshot/
-ans.txt
-intro.txt
+ignore/
 CHANGELOG.md
 
 # Local editor and OS files
@@ -14,6 +13,3 @@ desktop.ini
 *.log
 *.tmp
 *.temp
-
-# Large local demo artifacts
-screenshot.mp4

@@ -48,8 +48,14 @@ After the Spotify source tab has been authorized, other normal web tabs can use 
 
 The extension injects a content script into `http://*/*` and `https://*/*` pages so it can draw the floating lyrics window while you browse. The Spotify tab is the only page used as the playback source.
 
+## Support
+
+If this project helps you, you can support it here:
+
+- [Buy Me a Coffee](https://buymeacoffee.com/kyanzhu)
+
+![Donation QR codes](assets/support/donation-qrcodes.jpg)
+
 ## Notes
 
 Lyrics come from the public LRCLIB API. Some songs may not have synced lyrics. If Spotify changes its page DOM, the selectors in `src/content.js` may need an update.
-
-See `CHANGELOG.md` for version history.
