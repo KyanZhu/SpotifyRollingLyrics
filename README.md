@@ -2,6 +2,10 @@
 
 A Manifest V3 Chrome extension that shows rolling lyrics for the currently playing Spotify Web track, including as a floating window while browsing other websites.
 
+## Screenshot
+
+![Spotify Rolling Lyrics screenshot](screenshot.png)
+
 ## Features
 
 - Reads the current Spotify Web track title, artist, progress, and duration from an open `open.spotify.com` tab.
